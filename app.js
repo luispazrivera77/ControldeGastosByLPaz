@@ -1,5 +1,4 @@
-// app.js
-// Control de gastos minimalista con IndexedDB y PWA
+// app.js — Control de Gastos por LPaz (transacciones completas)
 
 const CURRENCY = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
 
@@ -9,19 +8,18 @@ const dbp = (function () {
   return {
     open: () =>
       new Promise((resolve, reject) => {
-        const req = indexedDB.open('gastosDB', 1);
+        // Nueva DB/versión para modelo de "transacciones"
+        const req = indexedDB.open('gastosDB_v2', 1);
         req.onupgradeneeded = (e) => {
           const db = e.target.result;
-          if (!db.objectStoreNames.contains('expenses')) {
-            const s = db.createObjectStore('expenses', { keyPath: 'id', autoIncrement: true });
+          if (!db.objectStoreNames.contains('transactions')) {
+            const s = db.createObjectStore('transactions', { keyPath: 'id', autoIncrement: true });
             s.createIndex('by_date', 'date', { unique: false });
             s.createIndex('by_name', 'name', { unique: false });
+            s.createIndex('by_type', 'type', { unique: false }); // 'expense'|'income'
           }
           if (!db.objectStoreNames.contains('attachments')) {
             db.createObjectStore('attachments', { keyPath: 'id', autoIncrement: true });
-          }
-          if (!db.objectStoreNames.contains('meta')) {
-            db.createObjectStore('meta', { keyPath: 'key' });
           }
         };
         req.onsuccess = () => { db = req.result; resolve(db); };
@@ -71,50 +69,36 @@ function parseAmount(input) {
   const v = Number(input.value);
   return Number.isFinite(v) && v >= 0 ? Math.round(v) : 0;
 }
-
+function endOfDay(d) { const x = new Date(d); x.setHours(23,59,59,999); return x; }
+function startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
 function within(dateISO, start, end) {
   const t = new Date(dateISO);
   return t >= start && t <= end;
 }
-
-function getPeriodRange(kind) {
-  const now = new Date();
-  if (kind === 'week') {
-    const end = endOfDay(now);
-    const start = new Date(end); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
-    return { start, end, label: 'Últimos 7 días' };
-  }
-  if (kind === 'fortnight') {
-    const y = now.getFullYear(); const m = now.getMonth();
-    const day = now.getDate();
-    const first = new Date(y, m, 1, 0,0,0,0);
-    const mid = new Date(y, m, 15, 23,59,59,999);
-    const last = new Date(y, m + 1, 0, 23,59,59,999);
-    return day <= 15 ? { start: first, end: mid, label: 'Quincena actual' } : { start: new Date(y, m, 16,0,0,0,0), end: last, label: 'Quincena actual' };
-  }
-  if (kind === 'month') {
-    const y = now.getFullYear(); const m = now.getMonth();
-    return { start: new Date(y, m, 1, 0,0,0,0), end: new Date(y, m + 1, 0, 23,59,59,999), label: 'Mes actual' };
-  }
-  return { start: new Date(1970,0,1), end: endOfDay(now), label: 'Todo' };
-}
-function endOfDay(d) { const x = new Date(d); x.setHours(23,59,59,999); return x; }
-
-function groupByDate(expenses) {
+function groupByDate(txs) {
   const map = new Map();
-  for (const e of expenses) {
-    const k = e.date;
-    map.set(k, (map.get(k) || 0) + e.amount);
+  for (const t of txs) {
+    const k = t.date;
+    map.set(k, (map.get(k) || 0) + (t.type === 'expense' ? t.amount : 0));
   }
   return Array.from(map.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+}
+function ranges() {
+  const now = new Date();
+  const today = { start: startOfDay(now), end: endOfDay(now) };
+  const weekEnd = endOfDay(now);
+  const weekStart = new Date(weekEnd); weekStart.setDate(weekStart.getDate() - 6); weekStart.setHours(0,0,0,0);
+  const y = now.getFullYear(); const m = now.getMonth(); const d = now.getDate();
+  const fortnight = d <= 15
+    ? { start: new Date(y, m, 1, 0,0,0,0), end: new Date(y, m, 15, 23,59,59,999) }
+    : { start: new Date(y, m, 16, 0,0,0,0), end: new Date(y, m + 1, 0, 23,59,59,999) };
+  const month = { start: new Date(y, m, 1, 0,0,0,0), end: new Date(y, m + 1, 0, 23,59,59,999) };
+  return { today, week: { start: weekStart, end: weekEnd }, fortnight, month };
 }
 
 // ---------- State ----------
 let state = {
-  expenses: [],
-  income: 0,
-  filtered: [],
-  period: 'week',
+  txs: [],
   editId: null,
 };
 
@@ -125,57 +109,56 @@ initUI();
 registerSW();
 autoSetDefaultDate();
 refreshInfoPanel();
+setInterval(refreshInfoPanel, 10 * 60 * 1000); // cada 10 minutos
 
 function autoSetDefaultDate() {
   $('#date').value = todayStr();
 }
 
-// ---------- Load and compute ----------
+// ---------- Load & compute ----------
 async function loadAll() {
-  const [expenses, metaIncome] = await Promise.all([
-    dbp.getAll('expenses'),
-    dbp.get('meta', 'income'),
-  ]);
-  state.expenses = expenses.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
-  state.income = metaIncome?.value || 0;
+  const txs = await dbp.getAll('transactions');
+  state.txs = txs.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   computeAndRender();
 }
 
 function computeAndRender() {
-  const period = state.period;
-  const { start, end } = getPeriodRange(period);
-  const filtered = state.expenses.filter(e => within(e.date, start, end));
-  state.filtered = filtered;
+  // Balance (sum ingresos/gastos)
+  const incomeSum = state.txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  const expenseSum = state.txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const available = incomeSum - expenseSum;
 
-  const totalSpent = state.expenses.reduce((s, e) => s + e.amount, 0);
-  const spentPeriod = filtered.reduce((s, e) => s + e.amount, 0);
-  const days = Math.max(1, Math.ceil((end - start) / (1000*60*60*24)) + 1);
-  const avg = Math.round(spentPeriod / days);
-
-  // Balance
-  $('#incomeDisplay').textContent = fmt(state.income);
-  $('#spentDisplay').textContent = fmt(totalSpent);
-  const available = Math.max(0, state.income - totalSpent);
+  $('#incomeDisplay').textContent = fmt(incomeSum);
+  $('#spentDisplay').textContent = fmt(expenseSum);
   $('#availableDisplay').textContent = fmt(available);
-  const ratio = state.income > 0 ? Math.min(100, Math.round((totalSpent / state.income) * 100)) : 0;
+  const ratio = (incomeSum > 0) ? Math.min(100, Math.round((expenseSum / incomeSum) * 100)) : 0;
   $('#progressBar').style.width = ratio + '%';
 
-  // Stats
-  $('#periodTotal').textContent = fmt(spentPeriod);
-  $('#periodAvg').textContent = fmt(avg);
-  $('#periodCount').textContent = String(filtered.length);
+  // Estadísticas (solo gastos)
+  const r = ranges();
+  const sumRange = (rg) => state.txs
+    .filter(t => t.type === 'expense' && within(t.date, rg.start, rg.end))
+    .reduce((s, t) => s + t.amount, 0);
+
+  $('#statTotal').textContent = fmt(expenseSum);
+  $('#statToday').textContent = fmt(sumRange(r.today));
+  $('#statWeek').textContent = fmt(sumRange(r.week));
+  $('#statFortnight').textContent = fmt(sumRange(r.fortnight));
+  $('#statMonth').textContent = fmt(sumRange(r.month));
 
   renderList();
-  renderMiniChart(filtered, { start, end });
+  renderMiniChart(); // barras por día, gastos
 }
 
-function renderMiniChart(expenses, range) {
+function renderMiniChart() {
   const container = $('#chartBars');
   container.innerHTML = '';
-  const byDate = groupByDate(expenses);
+  const byDate = groupByDate(state.txs);
   const values = byDate.map(([, v]) => v);
   const max = Math.max(1, ...values);
-  for (const [, v] of byDate) {
+  // Limitar a últimos 14 días visibles
+  const last14 = byDate.slice(-14);
+  for (const [, v] of last14) {
     const h = Math.max(4, Math.round((v / max) * 100));
     const bar = document.createElement('div');
     bar.style.height = h + '%';
@@ -183,24 +166,18 @@ function renderMiniChart(expenses, range) {
   }
 }
 
-// ---------- UI binding ----------
+// ---------- UI ----------
 function initUI() {
-  $('#expenseForm').addEventListener('submit', onAddExpense);
-  $('#periodSelect').addEventListener('change', (e) => {
-    state.period = e.target.value;
-    computeAndRender();
-  });
+  $('#txForm').addEventListener('submit', onAddTx);
   $('#search').addEventListener('input', onSearch);
-  $('#setIncomeBtn').addEventListener('click', openIncomeDialog);
-  $('#saveIncomeBtn').addEventListener('click', saveIncome);
-  $('#updateExpenseBtn').addEventListener('click', updateExpense);
   $('#refreshDataBtn').addEventListener('click', refreshInfoPanel);
+  $('#updateTxBtn').addEventListener('click', updateTx);
   setupInstall();
 }
 
 function onSearch(e) {
   const q = e.target.value.trim().toLowerCase();
-  const items = $$('#expenseList .item');
+  const items = $$('#txList .item');
   let visible = 0;
   for (const li of items) {
     const title = li.querySelector('.title').textContent.toLowerCase();
@@ -211,18 +188,18 @@ function onSearch(e) {
   $('#emptyState').style.display = visible === 0 ? '' : 'none';
 }
 
-async function onAddExpense(e) {
+async function onAddTx(e) {
   e.preventDefault();
+  const type = $('#type').value; // 'expense'|'income'
   const name = $('#name').value.trim();
   const amount = parseAmount($('#amount'));
   const date = $('#date').value || todayStr();
   if (!name || amount <= 0) return;
 
-  // Attachments
   const photoFile = $('#photo').files[0] || null;
   const docFile = $('#document').files[0] || null;
-
   const attachmentRefs = [];
+
   if (photoFile) {
     const id = await dbp.add('attachments', { blob: photoFile, name: photoFile.name, type: photoFile.type, created: Date.now() });
     attachmentRefs.push({ storeId: id, kind: 'photo', name: photoFile.name, type: photoFile.type });
@@ -232,39 +209,45 @@ async function onAddExpense(e) {
     attachmentRefs.push({ storeId: id, kind: 'document', name: docFile.name, type: docFile.type });
   }
 
-  const expense = { name, amount, date, attachments: attachmentRefs, created: Date.now() };
-  const id = await dbp.add('expenses', expense);
-  expense.id = id;
-  state.expenses.unshift(expense);
+  const tx = { type, name, amount, date, attachments: attachmentRefs, created: Date.now() };
+  const id = await dbp.add('transactions', tx);
+  tx.id = id;
+  state.txs.unshift(tx);
 
-  $('#expenseForm').reset();
+  $('#txForm').reset();
   autoSetDefaultDate();
   computeAndRender();
 }
 
 function renderList() {
-  const list = $('#expenseList');
+  const list = $('#txList');
   list.innerHTML = '';
   const empty = $('#emptyState');
-  empty.style.display = state.expenses.length ? 'none' : '';
+  empty.style.display = state.txs.length ? 'none' : '';
 
   const tpl = $('#itemTemplate');
-  for (const e of state.expenses) {
+  for (const t of state.txs) {
     const li = tpl.content.firstElementChild.cloneNode(true);
-    li.dataset.id = e.id;
+    li.dataset.id = t.id;
 
-    li.querySelector('.title').textContent = `${e.name} — ${fmt(e.amount)}`;
-    li.querySelector('.meta').textContent = new Date(e.date).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
+    const sign = t.type === 'expense' ? '-' : '+';
+    const color = t.type === 'expense' ? 'negative' : 'positive';
+
+    li.querySelector('.title').innerHTML = `${t.name} — <span class="${color}">${sign} ${fmt(t.amount)}</span>`;
+    li.querySelector('.meta').textContent = new Date(t.date).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    const badge = li.querySelector('.badge');
+    badge.classList.add(t.type);
+    badge.textContent = t.type === 'expense' ? 'Gasto' : 'Ingreso';
 
     const link = li.querySelector('.thumb');
-    if (e.attachments?.length) {
+    if (t.attachments?.length) {
       link.classList.remove('hidden');
-      link.textContent = e.attachments.length === 1 ? 'Comprobante' : `${e.attachments.length} archivos`;
+      link.textContent = t.attachments.length === 1 ? 'Comprobante' : `${t.attachments.length} archivos`;
       link.href = '#';
       link.addEventListener('click', async (ev) => {
         ev.preventDefault();
-        // Abre el primero si es imagen o descarga el primero
-        const ref = e.attachments[0];
+        const ref = t.attachments[0];
         const at = await dbp.get('attachments', ref.storeId);
         const url = URL.createObjectURL(at.blob);
         window.open(url, '_blank', 'noopener');
@@ -272,129 +255,35 @@ function renderList() {
       });
     }
 
-    li.querySelector('.edit').addEventListener('click', () => openEditDialog(e));
-    li.querySelector('.delete').addEventListener('click', () => deleteExpense(e.id));
+    li.querySelector('.edit').addEventListener('click', () => openEditDialog(t));
+    li.querySelector('.delete').addEventListener('click', () => deleteTx(t.id));
 
     list.appendChild(li);
   }
 }
 
-function openIncomeDialog() {
-  $('#incomeInput').value = state.income || '';
-  $('#incomeDialog').showModal();
-}
-
-async function saveIncome(ev) {
-  ev.preventDefault();
-  const v = parseAmount($('#incomeInput'));
-  await dbp.put('meta', { key: 'income', value: v });
-  state.income = v;
-  $('#incomeDialog').close();
-  computeAndRender();
-}
-
-function openEditDialog(expense) {
-  state.editId = expense.id;
-  $('#editName').value = expense.name;
-  $('#editAmount').value = expense.amount;
-  $('#editDate').value = expense.date;
+function openEditDialog(tx) {
+  state.editId = tx.id;
+  $('#editType').value = tx.type;
+  $('#editName').value = tx.name;
+  $('#editAmount').value = tx.amount;
+  $('#editDate').value = tx.date;
   $('#editDialog').showModal();
 }
 
-async function updateExpense(ev) {
+async function updateTx(ev) {
   ev.preventDefault();
   if (!state.editId) return;
+  const type = $('#editType').value;
   const name = $('#editName').value.trim();
   const amount = parseAmount($('#editAmount'));
   const date = $('#editDate').value || todayStr();
   if (!name || amount <= 0) return;
 
-  const e = await dbp.get('expenses', state.editId);
-  e.name = name;
-  e.amount = amount;
-  e.date = date;
-  await dbp.put('expenses', e);
-  const idx = state.expenses.findIndex(x => x.id === e.id);
-  state.expenses[idx] = e;
-  state.expenses.sort((a,b)=> b.date.localeCompare(a.date) || b.id - a.id);
+  const photoFile = $('#editPhoto').files[0] || null;
+  const docFile = $('#editDocument').files[0] || null;
 
-  $('#editDialog').close();
-  computeAndRender();
-}
+  const tx = await dbp.get('transactions', state.editId);
+  tx.type = type; tx.name = name; tx.amount = amount; tx.date = date;
 
-async function deleteExpense(id) {
-  await dbp.delete('expenses', id);
-  state.expenses = state.expenses.filter(e => e.id !== id);
-  computeAndRender();
-}
-
-// ---------- Info panel (índices y cripto) ----------
-async function refreshInfoPanel() {
-  setInfoListsLoading();
-  try {
-    const [cl, crypto] = await Promise.all([
-      fetch('https://mindicador.cl/api', { cache: 'no-store' }).then(r => r.json()),
-      fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd,clp', { cache: 'no-store' }).then(r => r.json()),
-    ]);
-
-    const clList = $('#clIndicators');
-    clList.innerHTML = '';
-    addInfo(clList, 'UF', cl?.uf?.valor ? fmt(Math.round(cl.uf.valor)) : '—');
-    addInfo(clList, 'UTM', cl?.utm?.valor ? fmt(Math.round(cl.utm.valor)) : '—');
-    addInfo(clList, 'IPC', cl?.ipc?.variacion ? `${cl.ipc.variacion}%` : (cl?.ipc?.valor ? `${cl.ipc.valor}%` : '—'));
-    addInfo(clList, 'Imacec', cl?.imacec?.valor ?? '—');
-
-    const fxList = $('#fxIndicators');
-    fxList.innerHTML = '';
-    addInfo(fxList, 'USD/CLP', cl?.dolar?.valor ? fmt(Math.round(cl.dolar.valor)) : '—');
-    addInfo(fxList, 'EUR/CLP', cl?.euro?.valor ? fmt(Math.round(cl.euro.valor)) : '—');
-
-    const cList = $('#cryptoIndicators');
-    cList.innerHTML = '';
-    addInfo(cList, 'BTC', crypto?.bitcoin ? `$${Math.round(crypto.bitcoin.usd).toLocaleString('en-US')} | ${fmt(Math.round(crypto.bitcoin.clp))}` : '—');
-    addInfo(cList, 'ETH', crypto?.ethereum ? `$${Math.round(crypto.ethereum.usd).toLocaleString('en-US')} | ${fmt(Math.round(crypto.ethereum.clp))}` : '—');
-    addInfo(cList, 'SOL', crypto?.solana ? `$${Math.round(crypto.solana.usd).toLocaleString('en-US')} | ${fmt(Math.round(crypto.solana.clp))}` : '—');
-
-    $('#lastUpdate').textContent = `Actualizado: ${new Date().toLocaleString('es-CL')}`;
-  } catch (e) {
-    $('#lastUpdate').textContent = 'No se pudo actualizar. Revisa tu conexión.';
-  }
-}
-
-function setInfoListsLoading() {
-  const lists = [$('#clIndicators'), $('#fxIndicators'), $('#cryptoIndicators')];
-  for (const ul of lists) ul.innerHTML = '<li><span class="k">Cargando…</span><span>—</span></li>';
-}
-
-function addInfo(ul, key, value) {
-  const li = document.createElement('li');
-  const k = document.createElement('span'); k.className = 'k'; k.textContent = key;
-  const v = document.createElement('span'); v.textContent = value;
-  li.append(k, v);
-  ul.appendChild(li);
-}
-
-// ---------- PWA install ----------
-let deferredPrompt = null;
-function setupInstall() {
-  const btn = $('#installBtn');
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    btn.style.display = '';
-  });
-  btn.addEventListener('click', async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    deferredPrompt = null;
-    btn.style.display = 'none';
-  });
-}
-
-// ---------- Service Worker ----------
-function registerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js');
-  }
-}
+  // Si se proporcionan archivos nuevos, reemplaza los existentes
