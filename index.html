@@ -3,20 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Control de gastos</title>
+  <title>Control de Gastos por LPaz</title>
   <meta name="theme-color" content="#0a0f14" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='100%25' height='100%25' fill='%230a0f14'/%3E%3Cpath d='M12 44 Q32 10 52 44' stroke='%2300e5ff' stroke-width='4' fill='none'/%3E%3Ccircle cx='22' cy='32' r='3' fill='%233b82f6'/%3E%3Ccircle cx='42' cy='28' r='3' fill='%23ffffff'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='100%25' height='100%25' fill='%230a0f14'/%3E%3Cpath d='M10 54 Q32 8 54 54' stroke='%2300e5ff' stroke-width='3' fill='none'/%3E%3Ccircle cx='22' cy='36' r='2' fill='%233b82f6'/%3E%3Ccircle cx='42' cy='30' r='2' fill='%23ffffff'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Líneas laterales luminosas -->
+  <div class="edge edge-left" aria-hidden="true"></div>
+  <div class="edge edge-right" aria-hidden="true"></div>
+
   <header class="topbar">
     <div class="brand">
-      <span class="dot"></span>
-      <h1>Gastos</h1>
+      <span class="brand-title">Control de Gastos por LPaz</span>
     </div>
     <div class="top-actions">
       <button id="installBtn" class="btn ghost" title="Instalar">Instalar</button>
@@ -25,46 +28,56 @@
   </header>
 
   <main class="layout">
+    <!-- Balance general -->
     <section class="card balance">
       <div class="balance-header">
         <h2>Balance</h2>
-        <button id="setIncomeBtn" class="btn small">Definir ingreso</button>
       </div>
       <div class="balance-grid">
         <div class="metric">
-          <span class="label">Ingreso inicial</span>
-          <span id="incomeDisplay" class="value">—</span>
+          <span class="label">Ingresos</span>
+          <span id="incomeDisplay" class="value positive">—</span>
         </div>
         <div class="metric">
-          <span class="label">Gastado</span>
+          <span class="label">Gastos</span>
           <span id="spentDisplay" class="value negative">—</span>
         </div>
         <div class="metric">
-          <span class="label">Disponible</span>
-          <span id="availableDisplay" class="value positive">—</span>
+          <span class="label">Saldo</span>
+          <span id="availableDisplay" class="value">—</span>
         </div>
       </div>
       <div class="progress">
-        <div id="progressBar"></div>
+        <div id="progressBar" title="Gasto vs Ingreso"></div>
       </div>
     </section>
 
-    <section class="card add-expense">
-      <h2>Nuevo gasto</h2>
-      <form id="expenseForm" autocomplete="off">
-        <div class="form-row">
-          <label>Nombre</label>
-          <input type="text" id="name" placeholder="Ej. Bencina, supermercados…" required />
+    <!-- Nueva transacción (Gasto/Ingreso) -->
+    <section class="card add-tx">
+      <h2>Nueva transacción</h2>
+      <form id="txForm" autocomplete="off">
+        <div class="form-row grid-3">
+          <div>
+            <label>Tipo</label>
+            <select id="type">
+              <option value="expense">Gasto</option>
+              <option value="income">Ingreso</option>
+            </select>
+          </div>
+          <div>
+            <label>Nombre</label>
+            <input type="text" id="name" placeholder="Ej. Bencina, sueldo…" required />
+          </div>
+          <div>
+            <label>Monto CLP</label>
+            <input type="number" id="amount" min="0" step="1" placeholder="Ej. 12500" required />
+          </div>
         </div>
-        <div class="form-row">
-          <label>Monto CLP</label>
-          <input type="number" id="amount" min="0" step="1" placeholder="Ej. 12500" required />
-        </div>
-        <div class="form-row">
-          <label>Fecha</label>
-          <input type="date" id="date" required />
-        </div>
-        <div class="form-row grid-2">
+        <div class="form-row grid-3">
+          <div>
+            <label>Fecha</label>
+            <input type="date" id="date" required />
+          </div>
           <div>
             <label>Foto comprobante</label>
             <input type="file" id="photo" accept="image/*" capture="environment" />
@@ -81,28 +94,41 @@
       </form>
     </section>
 
+    <!-- Lista de transacciones -->
+    <section class="card list">
+      <div class="list-header">
+        <h2>Transacciones</h2>
+        <input id="search" class="search" placeholder="Buscar por nombre…" />
+      </div>
+      <div id="emptyState" class="empty">Sin registros aún.</div>
+      <ul id="txList" class="items"></ul>
+    </section>
+
+    <!-- Estadísticas (gastos) -->
     <section class="card stats">
       <div class="stats-header">
-        <h2>Estadísticas</h2>
-        <select id="periodSelect" class="select">
-          <option value="week">Últimos 7 días</option>
-          <option value="fortnight">Quincena actual</option>
-          <option value="month">Mes actual</option>
-          <option value="all">Todo</option>
-        </select>
+        <h2>Estadísticas de gasto</h2>
       </div>
-      <div class="stats-grid">
+      <div class="stats-grid-5">
         <div class="metric">
-          <span class="label">Total del período</span>
-          <span id="periodTotal" class="value">—</span>
+          <span class="label">Total</span>
+          <span id="statTotal" class="value">—</span>
         </div>
         <div class="metric">
-          <span class="label">Promedio diario</span>
-          <span id="periodAvg" class="value">—</span>
+          <span class="label">Hoy</span>
+          <span id="statToday" class="value">—</span>
         </div>
         <div class="metric">
-          <span class="label">Transacciones</span>
-          <span id="periodCount" class="value">—</span>
+          <span class="label">7 días</span>
+          <span id="statWeek" class="value">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Quincena</span>
+          <span id="statFortnight" class="value">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Mes</span>
+          <span id="statMonth" class="value">—</span>
         </div>
       </div>
       <div class="mini-chart" aria-hidden="true">
@@ -110,12 +136,13 @@
       </div>
     </section>
 
+    <!-- Indicadores (abajo, a todo lo ancho) -->
     <section class="card info">
       <div class="info-header">
         <h2>Índices e info</h2>
         <span id="lastUpdate" class="muted">—</span>
       </div>
-      <div class="info-grid">
+      <div class="info-wide">
         <div class="panel">
           <h3>Chile</h3>
           <ul id="clIndicators" class="info-list"></ul>
@@ -130,36 +157,31 @@
         </div>
       </div>
     </section>
-
-    <section class="card list">
-      <div class="list-header">
-        <h2>Gastos</h2>
-        <input id="search" class="search" placeholder="Buscar por nombre…" />
-      </div>
-      <div id="emptyState" class="empty">Sin gastos aún.</div>
-      <ul id="expenseList" class="items"></ul>
-    </section>
   </main>
 
-  <dialog id="incomeDialog" class="dialog">
-    <form method="dialog">
-      <h3>Definir ingreso inicial</h3>
-      <input type="number" id="incomeInput" min="0" step="1" placeholder="Ej. 500000" />
-      <div class="dialog-actions">
-        <button id="saveIncomeBtn" class="btn primary">Guardar</button>
-        <button class="btn ghost" value="cancel">Cancelar</button>
-      </div>
-    </form>
-  </dialog>
-
+  <!-- Editar transacción -->
   <dialog id="editDialog" class="dialog">
     <form method="dialog" id="editForm">
-      <h3>Editar gasto</h3>
+      <h3>Editar transacción</h3>
+      <select id="editType">
+        <option value="expense">Gasto</option>
+        <option value="income">Ingreso</option>
+      </select>
       <input type="text" id="editName" required />
       <input type="number" id="editAmount" min="0" step="1" required />
       <input type="date" id="editDate" required />
+      <div class="form-row grid-2">
+        <div>
+          <label>Reemplazar foto</label>
+          <input type="file" id="editPhoto" accept="image/*" capture="environment" />
+        </div>
+        <div>
+          <label>Reemplazar documento</label>
+          <input type="file" id="editDocument" accept="image/*,application/pdf" />
+        </div>
+      </div>
       <div class="dialog-actions">
-        <button id="updateExpenseBtn" class="btn primary">Actualizar</button>
+        <button id="updateTxBtn" class="btn primary">Actualizar</button>
         <button class="btn ghost" value="cancel">Cancelar</button>
       </div>
     </form>
@@ -172,6 +194,7 @@
         <div class="meta"></div>
       </div>
       <div class="right">
+        <span class="badge"></span>
         <a class="thumb hidden" target="_blank" rel="noopener">Ver</a>
         <button class="icon-btn edit" title="Editar" aria-label="Editar">✎</button>
         <button class="icon-btn delete" title="Eliminar" aria-label="Eliminar">✕</button>
