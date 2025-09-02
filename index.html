@@ -1,146 +1,184 @@
-<!DOCTYPE html>
-<html lang="es">
+<!doctype html>
+<html lang="es" data-theme="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reloj Minimalista</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#000000">
-<style>
-  body {
-    margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    height:100vh; font-family: monospace; background:#000; color:#0f0; transition: background 0.3s, color 0.3s;
-  }
-  #clock { font-size: 5rem; letter-spacing: 4px; }
-  .controls { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-  label { font-size: 0.9rem; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Control de gastos</title>
+  <meta name="theme-color" content="#0a0f14" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='100%25' height='100%25' fill='%230a0f14'/%3E%3Cpath d='M12 44 Q32 10 52 44' stroke='%2300e5ff' stroke-width='4' fill='none'/%3E%3Ccircle cx='22' cy='32' r='3' fill='%233b82f6'/%3E%3Ccircle cx='42' cy='28' r='3' fill='%23ffffff'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Gastos</h1>
+    </div>
+    <div class="top-actions">
+      <button id="installBtn" class="btn ghost" title="Instalar">Instalar</button>
+      <button id="refreshDataBtn" class="btn ghost" title="Actualizar índices">Actualizar</button>
+    </div>
+  </header>
 
-<div id="clock"></div>
+  <main class="layout">
+    <section class="card balance">
+      <div class="balance-header">
+        <h2>Balance</h2>
+        <button id="setIncomeBtn" class="btn small">Definir ingreso</button>
+      </div>
+      <div class="balance-grid">
+        <div class="metric">
+          <span class="label">Ingreso inicial</span>
+          <span id="incomeDisplay" class="value">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Gastado</span>
+          <span id="spentDisplay" class="value negative">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Disponible</span>
+          <span id="availableDisplay" class="value positive">—</span>
+        </div>
+      </div>
+      <div class="progress">
+        <div id="progressBar"></div>
+      </div>
+    </section>
 
-<div class="controls">
-  <label>Formato:
-    <select id="format">
-      <option value="24">24h</option>
-      <option value="12">12h</option>
-    </select>
-  </label>
-  <label>Fuente:
-    <select id="font">
-      <option value="monospace">Monospace</option>
-      <option value="sans-serif">Sans Serif</option>
-      <option value="serif">Serif</option>
-      <option value="'Courier New', monospace">Courier</option>
-    </select>
-  </label>
-  <label>Color números:
-    <input type="color" id="color" value="#00ff00">
-  </label>
-  <label>Color fondo:
-    <input type="color" id="bgcolor" value="#000000">
-  </label>
-  <label>Alarma:
-    <input type="time" id="alarmTime">
-  </label>
-  <button id="setAlarm">Activar</button>
-  <button id="clearAlarm">Quitar</button>
-</div>
+    <section class="card add-expense">
+      <h2>Nuevo gasto</h2>
+      <form id="expenseForm" autocomplete="off">
+        <div class="form-row">
+          <label>Nombre</label>
+          <input type="text" id="name" placeholder="Ej. Bencina, supermercados…" required />
+        </div>
+        <div class="form-row">
+          <label>Monto CLP</label>
+          <input type="number" id="amount" min="0" step="1" placeholder="Ej. 12500" required />
+        </div>
+        <div class="form-row">
+          <label>Fecha</label>
+          <input type="date" id="date" required />
+        </div>
+        <div class="form-row grid-2">
+          <div>
+            <label>Foto comprobante</label>
+            <input type="file" id="photo" accept="image/*" capture="environment" />
+          </div>
+          <div>
+            <label>Documento</label>
+            <input type="file" id="document" accept="image/*,application/pdf" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn primary">Agregar</button>
+          <button type="reset" class="btn ghost">Limpiar</button>
+        </div>
+      </form>
+    </section>
 
-<audio id="alarmSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+    <section class="card stats">
+      <div class="stats-header">
+        <h2>Estadísticas</h2>
+        <select id="periodSelect" class="select">
+          <option value="week">Últimos 7 días</option>
+          <option value="fortnight">Quincena actual</option>
+          <option value="month">Mes actual</option>
+          <option value="all">Todo</option>
+        </select>
+      </div>
+      <div class="stats-grid">
+        <div class="metric">
+          <span class="label">Total del período</span>
+          <span id="periodTotal" class="value">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Promedio diario</span>
+          <span id="periodAvg" class="value">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Transacciones</span>
+          <span id="periodCount" class="value">—</span>
+        </div>
+      </div>
+      <div class="mini-chart" aria-hidden="true">
+        <div id="chartBars" class="bars"></div>
+      </div>
+    </section>
 
-<script>
-const clock = document.getElementById('clock');
-const formatSel = document.getElementById('format');
-const fontSel = document.getElementById('font');
-const colorSel = document.getElementById('color');
-const bgSel = document.getElementById('bgcolor');
-const alarmInput = document.getElementById('alarmTime');
-const alarmSound = document.getElementById('alarmSound');
+    <section class="card info">
+      <div class="info-header">
+        <h2>Índices e info</h2>
+        <span id="lastUpdate" class="muted">—</span>
+      </div>
+      <div class="info-grid">
+        <div class="panel">
+          <h3>Chile</h3>
+          <ul id="clIndicators" class="info-list"></ul>
+        </div>
+        <div class="panel">
+          <h3>Divisas</h3>
+          <ul id="fxIndicators" class="info-list"></ul>
+        </div>
+        <div class="panel">
+          <h3>Cripto</h3>
+          <ul id="cryptoIndicators" class="info-list"></ul>
+        </div>
+      </div>
+    </section>
 
-let alarmTime = null;
-let alarmActive = false;
+    <section class="card list">
+      <div class="list-header">
+        <h2>Gastos</h2>
+        <input id="search" class="search" placeholder="Buscar por nombre…" />
+      </div>
+      <div id="emptyState" class="empty">Sin gastos aún.</div>
+      <ul id="expenseList" class="items"></ul>
+    </section>
+  </main>
 
-// Cargar preferencias
-if(localStorage.getItem('prefs')){
-  const prefs = JSON.parse(localStorage.getItem('prefs'));
-  formatSel.value = prefs.format;
-  fontSel.value = prefs.font;
-  colorSel.value = prefs.color;
-  bgSel.value = prefs.bg;
-  document.body.style.fontFamily = prefs.font;
-  document.body.style.color = prefs.color;
-  document.body.style.backgroundColor = prefs.bg;
-}
+  <dialog id="incomeDialog" class="dialog">
+    <form method="dialog">
+      <h3>Definir ingreso inicial</h3>
+      <input type="number" id="incomeInput" min="0" step="1" placeholder="Ej. 500000" />
+      <div class="dialog-actions">
+        <button id="saveIncomeBtn" class="btn primary">Guardar</button>
+        <button class="btn ghost" value="cancel">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
 
-function savePrefs(){
-  localStorage.setItem('prefs', JSON.stringify({
-    format: formatSel.value,
-    font: fontSel.value,
-    color: colorSel.value,
-    bg: bgSel.value
-  }));
-}
+  <dialog id="editDialog" class="dialog">
+    <form method="dialog" id="editForm">
+      <h3>Editar gasto</h3>
+      <input type="text" id="editName" required />
+      <input type="number" id="editAmount" min="0" step="1" required />
+      <input type="date" id="editDate" required />
+      <div class="dialog-actions">
+        <button id="updateExpenseBtn" class="btn primary">Actualizar</button>
+        <button class="btn ghost" value="cancel">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
 
-function updateClock(){
-  const now = new Date();
-  let hours = now.getHours();
-  let minutes = now.getMinutes();
-  let seconds = now.getSeconds();
-  let ampm = '';
+  <template id="itemTemplate">
+    <li class="item">
+      <div class="left">
+        <div class="title"></div>
+        <div class="meta"></div>
+      </div>
+      <div class="right">
+        <a class="thumb hidden" target="_blank" rel="noopener">Ver</a>
+        <button class="icon-btn edit" title="Editar" aria-label="Editar">✎</button>
+        <button class="icon-btn delete" title="Eliminar" aria-label="Eliminar">✕</button>
+      </div>
+    </li>
+  </template>
 
-  if(formatSel.value === '12'){
-    ampm = hours >= 12 ? ' PM' : ' AM';
-    hours = hours % 12 || 12;
-  }
-
-  const timeStr = 
-    String(hours).padStart(2,'0') + ':' +
-    String(minutes).padStart(2,'0') + ':' +
-    String(seconds).padStart(2,'0') + ampm;
-
-  clock.textContent = timeStr;
-
-  if(alarmActive && alarmTime){
-    const current = now.toTimeString().slice(0,5);
-    if(current === alarmTime){
-      alarmSound.play();
-      alarmActive = false;
-      alert('⏰ ¡Alarma!');
-    }
-  }
-}
-
-setInterval(updateClock, 1000);
-updateClock();
-
-formatSel.addEventListener('change', ()=>{ updateClock(); savePrefs(); });
-fontSel.addEventListener('change', ()=>{ document.body.style.fontFamily = fontSel.value; savePrefs(); });
-colorSel.addEventListener('input', ()=>{ document.body.style.color = colorSel.value; savePrefs(); });
-bgSel.addEventListener('input', ()=>{ document.body.style.backgroundColor = bgSel.value; savePrefs(); });
-
-document.getElementById('setAlarm').addEventListener('click', ()=>{
-  if(alarmInput.value){
-    alarmTime = alarmInput.value;
-    alarmActive = true;
-    alert('Alarma configurada para ' + alarmTime);
-  }
-});
-document.getElementById('clearAlarm').addEventListener('click', ()=>{
-  alarmTime = null;
-  alarmActive = false;
-  alert('Alarma eliminada');
-});
-</script>
-
-<script>
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js")
-    .then(() => console.log("SW registrado"))
-    .catch(err => console.error("Error SW:", err));
-}
-</script>
-
+  <script src="app.js" type="module"></script>
 </body>
 </html>
