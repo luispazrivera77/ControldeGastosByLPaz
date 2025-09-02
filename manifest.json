@@ -1,4 +1,3 @@
-// manifest.webmanifest
 {
   "name": "Control de gastos",
   "short_name": "Gastos",
@@ -11,3 +10,4 @@
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
+
